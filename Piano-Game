@@ -1,0 +1,124 @@
+import math
+import pygame
+from array import array
+import time
+
+pygame.init()
+pygame.mixer.pre_init(22050, -16, 1, 512)
+pygame.mixer.init()
+
+# تنظیمات صفحه
+WIDTH, HEIGHT = 900, 400
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("🎹 Piano — Real-time Sound & Note Growth")
+
+# نُت‌ها
+NOTES = [
+    ("C4", 261.63),
+    ("D4", 293.66),
+    ("E4", 329.63),
+    ("F4", 349.23),
+    ("G4", 392.00),
+    ("A4", 440.00),
+    ("B4", 493.88),
+    ("C5", 523.25)
+]
+
+# تابع ساخت صدا (موج سینوسی پیوسته)
+def make_loop_sound(freq, vol=0.6):
+    samples = int(22050 * 2)  # طول ۲ ثانیه‌ای برای لوپ (کافیه)
+    arr = array("h")
+    amp = int(32767 * vol)
+    for i in range(samples):
+        t = i / 22050
+        val = math.sin(2 * math.pi * freq * t)
+        arr.append(int(amp * val))
+    sound = pygame.mixer.Sound(buffer=arr.tobytes())
+    return sound
+
+# ساخت صداها
+sounds = [make_loop_sound(f) for _, f in NOTES]
+
+# کلیدها
+key_w = WIDTH // len(NOTES)
+keys = [pygame.Rect(i * key_w, 0, key_w, 200) for i in range(len(NOTES))]
+
+# وضعیت نُت‌ها
+pressed = [False] * len(NOTES)
+press_start = [0.0] * len(NOTES)
+channels = [None] * len(NOTES)
+falling_notes = []
+growing_notes = {}
+
+clock = pygame.time.Clock()
+running = True
+
+while running:
+    for e in pygame.event.get():
+        if e.type == pygame.QUIT:
+            running = False
+        elif e.type == pygame.MOUSEBUTTONDOWN:
+            x, y = e.pos
+            for i, rect in enumerate(keys):
+                if rect.collidepoint(x, y) and not pressed[i]:
+                    pressed[i] = True
+                    press_start[i] = time.time()
+
+                    # شروع پخش صدا در لوپ
+                    channels[i] = pygame.mixer.find_channel(True)
+                    if channels[i]:
+                        channels[i].play(sounds[i], loops=-1)
+
+                    # شروع رشد مستطیل
+                    growing_notes[i] = {
+                        "x": rect.x + rect.width // 2 - 10,
+                        "width": 20,
+                        "y": rect.bottom,
+                        "length": 0,
+                        "color": (120, 180, 255)
+                    }
+
+        elif e.type == pygame.MOUSEBUTTONUP:
+            for i in range(len(keys)):
+                if pressed[i]:
+                    pressed[i] = False
+                    # متوقف کردن صدا
+                    if channels[i]:
+                        channels[i].stop()
+                    # گرفتن مستطیل در حال رشد
+                    if i in growing_notes:
+                        note = growing_notes.pop(i)
+                        falling_notes.append(note)
+
+    # رشد مستطیل هنگام نگه داشتن
+    for i in list(growing_notes.keys()):
+        growing_notes[i]["length"] += 4
+
+    # افتادن نُت‌ها
+    for note in falling_notes:
+        note["y"] += 3
+    falling_notes = [n for n in falling_notes if n["y"] < HEIGHT + 60]
+
+    # رسم
+    screen.fill((25, 25, 25))
+
+    for i, rect in enumerate(keys):
+        col = (255, 255, 255) if not pressed[i] else (180, 200, 255)
+        pygame.draw.rect(screen, col, rect)
+        pygame.draw.rect(screen, (0, 0, 0), rect, 2)
+        font = pygame.font.SysFont(None, 24)
+        txt = font.render(NOTES[i][0], True, (0, 0, 0))
+        screen.blit(txt, (rect.x + rect.width // 2 - txt.get_width() // 2, rect.bottom - 25))
+
+    # مستطیل‌های در حال رشد
+    for note in growing_notes.values():
+        pygame.draw.rect(screen, note["color"], (note["x"], note["y"], note["width"], note["length"]))
+
+    # مستطیل‌های در حال افتادن
+    for note in falling_notes:
+        pygame.draw.rect(screen, note["color"], (note["x"], note["y"], note["width"], note["length"]))
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
